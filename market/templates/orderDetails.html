@@ -6,7 +6,7 @@
 {% block content %}
 <div class ="d-flex justify-content-center align-items-center min-vh-100" >
 <div>
-<form method ="POST" action="">
+<form method="POST" action="{{ url_for('order_placing', user_id=session.get('user_id', 1)) }}">
   <h1 class="text-center">
     Your total amount is : RS <span style="color: red;">{{total_val}}</span>
     <span></span>

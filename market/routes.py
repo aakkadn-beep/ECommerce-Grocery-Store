@@ -190,62 +190,6 @@ def userEnter(user_id):
             tempError = "Error: KeyError"
     return render_template('home.html',list=my_list)
 
-@app.route('/order/<user_id>',methods=['GET','POST'])
-def placeOrder(user_id):
-    global customer_cart_list
-    global cart_id
-    global total_val 
-    if request.method=='POST':
-        OfferDetails = request.form
-        P_code = OfferDetails['Promo_Code']
-        cur = my_sql.connection.cursor()
-        if(P_code=='Coupon_Code'):
-            cur.execute("UPDATE cart SET Offer_ID = %s WHERE Cart_ID = %s",(None,cart_id))
-            my_sql.connection.commit()
-            cur.close()
-        else:
-            offer_list = cur.execute("SELECT * FROM offer")
-            if offer_list>0:
-                offer_all = cur.fetchall()
-                deduct = 0
-                my_tup=()
-            for tup in offer_all:
-                if(tup[1]==P_code):
-                    my_tup=tup
-                    if(int(total_val)>int(tup[3])):
-                        dval = (int(total_val)*float(tup[2]))/100
-                        if(float(dval)>int(tup[4])):
-                            deduct=int(tup[4])
-                        else:
-                            deduct=dval
-                    break
-            if(deduct==0):
-                cur.execute("UPDATE cart SET Offer_ID = %s WHERE Cart_ID = %s",(None,cart_id))
-                my_sql.connection.commit()
-                cur.close()
-            else:
-                cur.execute("UPDATE cart SET Offer_ID = %s WHERE Cart_ID = %s",(my_tup[0],cart_id))
-                total_val=total_val-deduct
-                cur.execute("UPDATE cart SET Final_Amount = %s WHERE Cart_ID = %s",(total_val,cart_id))
-                my_sql.connection.commit()
-                cur.close()
-        for item in customer_cart_list:
-            product_name = item['Name']
-            cur = my_sql.connection.cursor()
-            prod_list = cur.execute("SELECT * FROM product")
-            if prod_list>0:
-                prod_all = cur.fetchall()
-                id = -1
-            for tup in prod_all:
-                if(tup[1]==product_name):
-                    id = tup[0]
-                    break
-            cur.execute("INSERT INTO associated_with(Customer_ID,Cart_ID,Product_ID) VALUES(%s, %s, %s)",(user_id,cart_id,id))
-            my_sql.connection.commit()
-            cur.close()
-        return redirect('/placeOrder'+'/'+str(user_id))
-    return render_template('order.html',list=customer_cart_list)
-
 @app.route('/HomePage')
 @app.route('/')
 def homePage():
@@ -263,10 +207,10 @@ def loginRegisterUser():
 def loginRegisterAdmin():
     return render_template('loginregisterAdmin.html')
 
-@app.route('/placeOrder/<user_id>',methods=['GET','POST'])
+@app.route('/placeOrder/<user_id>', methods=['GET','POST'])
 def order_placing(user_id):
     global total_val
-    if request.method=='POST':
+    if request.method == 'POST':
         orderDetails = request.form
         HNO = orderDetails['HNO']
         City = orderDetails['City']
@@ -276,16 +220,30 @@ def order_placing(user_id):
         curr_date = date.today()
         now = datetime.now()
         current_time = now.strftime("%H:%M:%S")
+        
         cur = my_sql.connection.cursor()
+        
+        # Obtener un repartidor
         rand_delivery_boy = cur.execute("SELECT Delivery_Boy_ID FROM delivery_boy")
-        if rand_delivery_boy >0:
+        boy_key = None
+        if rand_delivery_boy > 0:
             rand_boy = cur.fetchall()
-            boy_key = random.choice(rand_boy)
-        cur.execute("INSERT INTO orders(Mode,Amount,City,State,Order_Time,House_Flat_No,Pincode,Cart_ID,Date,Delivery_Boy_ID) VALUES(%s, %s, %s, %s, %s,%s,%s,%s,%s,%s)",(Mode,total_val,City,State,current_time,HNO,Pincode,cart_id,curr_date,boy_key))
+            boy_tuple = random.choice(rand_boy)
+            # Extraer el ID del repartidor de la tupla (ej. (1,))
+            boy_key = boy_tuple[0] if isinstance(boy_tuple, (tuple, list)) else boy_tuple
+            
+        # Consulta corregida: Incluye Customer_ID y coincide los 11 valores con los 11 %s
+        cur.execute(
+            "INSERT INTO orders(Customer_ID, Mode, Amount, City, State, Order_Time, House_Flat_No, Pincode, Cart_ID, Date, Delivery_Boy_ID) "
+            "VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (user_id, Mode, total_val, City, State, current_time, HNO, Pincode, cart_id, curr_date, boy_key)
+        )
+        
         flash('Your Order has been placed Successfully !')
         my_sql.connection.commit()
         cur.close()
-    return render_template('orderDetails.html',total_val=total_val)
+        
+    return render_template('orderDetails.html', total_val=total_val)
 
 @app.route('/customerRegister',methods=['GET','POST'])
 def customerRegister():
