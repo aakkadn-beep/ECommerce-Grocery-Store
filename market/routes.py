@@ -1,6 +1,6 @@
 from http.client import HTTPResponse
 from xml.dom.expatbuilder import FragmentBuilder
-from flask import flash, redirect, render_template, request, url_for
+from flask import render_template, redirect, url_for, flash, request, session
 from pyparsing import nums
 from market import my_sql
 from market import app
@@ -167,7 +167,18 @@ def userEnter(user_id):
         cur = my_sql.connection.cursor()
         OID = 3
         f_amt = total_val
-        cur.execute("INSERT INTO cart(Cart_ID,Total_Value,Total_Count,Offer_ID,Final_Amount) VALUES(%s, %s, %s, %s, %s)",(cart_id,total_val,total_count,OID,f_amt))
+        cur.execute(
+            """
+            INSERT INTO cart (Cart_ID, Total_Value, Total_Count, Offer_ID, Final_Amount) 
+            VALUES (%s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE 
+                Total_Value = VALUES(Total_Value),
+                Total_Count = VALUES(Total_Count),
+                Offer_ID = VALUES(Offer_ID),
+                Final_Amount = VALUES(Final_Amount)
+            """,
+            (cart_id, total_val, total_count, OID, f_amt)
+        )
         my_sql.connection.commit()
         cur.close()
         url_direct = '/order'+'/'+str(user_id)
@@ -207,41 +218,93 @@ def loginRegisterUser():
 def loginRegisterAdmin():
     return render_template('loginregisterAdmin.html')
 
-@app.route('/placeOrder/<user_id>', methods=['GET','POST'])
-def order_placing(user_id):
+@app.route('/order/<user_id>', methods=['GET', 'POST'])
+@app.route('/placeOrder', methods=['GET', 'POST'])
+@app.route('/placeOrder/<user_id>', methods=['GET', 'POST'])
+def order_placing(user_id=None):
+    if not user_id and 'user_id' in session:
+        user_id = session['user_id']
+        
     global total_val
+
     if request.method == 'POST':
         orderDetails = request.form
-        HNO = orderDetails['HNO']
-        City = orderDetails['City']
-        State = orderDetails['State']
-        Pincode = orderDetails['Pincode']
-        Mode = orderDetails['Mode']
+        HNO = orderDetails.get('HNO', '')
+        City = orderDetails.get('City', '')
+        State = orderDetails.get('State', '')
+        Pincode = orderDetails.get('Pincode', '')
+        Mode = orderDetails.get('Mode', 'Cash on Delivery')
+        coupon_code = orderDetails.get('coupon_code', '').strip()
+        
         curr_date = date.today()
         now = datetime.now()
         current_time = now.strftime("%H:%M:%S")
         
         cur = my_sql.connection.cursor()
         
-        # Obtener un repartidor
+        # Mantenemos el monto base
+        final_amount = float(total_val) if total_val else 0.0
+        
+        # Validar si el usuario ingresó un cupón
+        if coupon_code:
+            try:
+                # Consultar con los nombres reales de las columnas en 'offer'
+                cur.execute(
+                    "SELECT Percentage_Discount, Min_OrderValue, Max_Discount "
+                    "FROM offer WHERE Promo_Code = %s OR Offer_ID = %s",
+                    (coupon_code, coupon_code)
+                )
+                offer_row = cur.fetchone()
+
+                if offer_row:
+                    discount_percent = float(offer_row[0])
+                    min_order_val = float(offer_row[1]) if offer_row[1] else 0.0
+                    max_discount = float(offer_row[2]) if offer_row[2] else None
+
+                    # Validar monto mínimo de compra
+                    if final_amount >= min_order_val:
+                        calculated_discount = final_amount * (discount_percent / 100.0)
+                        
+                        # Respetar el tope máximo de descuento si existe
+                        if max_discount and calculated_discount > max_discount:
+                            calculated_discount = max_discount
+
+                        final_amount = final_amount - calculated_discount
+                        flash(f'¡Cupón aplicado! Se descontó ${calculated_discount:.2f}', 'success')
+                    else:
+                        flash(f'El monto mínimo para usar este cupón es de ${min_order_val}', 'warning')
+                else:
+                    flash('El código de cupón no existe.', 'warning')
+            except Exception as e:
+                print(f"Error al procesar el cupón: {e}")
+
+        # Asignar repartidor si existe
         rand_delivery_boy = cur.execute("SELECT Delivery_Boy_ID FROM delivery_boy")
         boy_key = None
         if rand_delivery_boy > 0:
             rand_boy = cur.fetchall()
             boy_tuple = random.choice(rand_boy)
-            # Extraer el ID del repartidor de la tupla (ej. (1,))
             boy_key = boy_tuple[0] if isinstance(boy_tuple, (tuple, list)) else boy_tuple
             
-        # Consulta corregida: Incluye Customer_ID y coincide los 11 valores con los 11 %s
+        # Obtener Cart_ID activo
+        cart_id = session.get('cart_id')
+        if not cart_id:
+            cur.execute("SELECT MAX(Cart_ID) FROM cart")
+            cart_row = cur.fetchone()
+            cart_id = cart_row[0] if (cart_row and cart_row[0]) else 1
+
+        # Guardar la orden con el monto ajustado por el descuento
         cur.execute(
-            "INSERT INTO orders(Customer_ID, Mode, Amount, City, State, Order_Time, House_Flat_No, Pincode, Cart_ID, Date, Delivery_Boy_ID) "
-            "VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (user_id, Mode, total_val, City, State, current_time, HNO, Pincode, cart_id, curr_date, boy_key)
+            "INSERT INTO orders(Mode, Amount, City, State, Order_Time, House_Flat_No, Pincode, Cart_ID, Date, Delivery_Boy_ID) "
+            "VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (Mode, final_amount, City, State, current_time, HNO, Pincode, cart_id, curr_date, boy_key)
         )
         
-        flash('Your Order has been placed Successfully !')
         my_sql.connection.commit()
         cur.close()
+        
+        flash('¡Tu pedido ha sido realizado con éxito!', 'success')
+        return redirect(url_for('homePage'))
         
     return render_template('orderDetails.html', total_val=total_val)
 

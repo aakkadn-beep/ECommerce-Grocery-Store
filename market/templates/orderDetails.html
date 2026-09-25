@@ -4,7 +4,7 @@
 {% endblock %}
 
 {% block content %}
-<div class ="d-flex justify-content-center align-items-center min-vh-100" >
+<div class="d-flex justify-content-center align-items-center min-vh-100">
 <div>
 <form method="POST" action="{{ url_for('order_placing', user_id=session.get('user_id', 1)) }}">
   <h1 class="text-center">
@@ -35,16 +35,19 @@
 
     <div class="form-group" style="margin-top: 5px;">
         <input type="text" class="form-control" id="formGroupExampleInput" placeholder="Payment Mode" name="Mode">
-      </div>
-  <div class="text-center">
+    </div>
+
+    <!-- Campo agregado para el código de descuento / cupón -->
+    <div class="form-group" style="margin-top: 5px;">
+        <input type="text" class="form-control" placeholder="Discount Coupon / Offer Code" name="coupon_code">
+    </div>
+
+  <div class="text-center" style="margin-top: 15px;">
     <button type="submit" class="btn btn-primary">Place Order</button>
   </div>
   </form>
 </div>
 </div>
-
-
-
 
 
 
